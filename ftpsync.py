@@ -3,8 +3,9 @@
 
 import os
 import time
-import logging
+import logging.config
 import argparse
+from ftplib import FTP
 
 def folderAdded(name):
     logging.info("The folder " + name + " has been added" + ".")
@@ -82,12 +83,12 @@ def run(args) :
         time.sleep(args.time)
         new_state = ({}, {})
         fill_directories_dictionary(new_state[0], new_state[1], args.directory, 0, args.recursive)
-      locate  folderAnalyse(old_state[0], new_state[0])
+        folderAnalyse(old_state[0], new_state[0])
         filesAnalyse(old_state[1], new_state[1])
         old_state = new_state
 
 def parse_arguments() :
-    parser = argparse.ArgumentParser(prog='FolderSuperviser', description='This program will let you know every addition, deletion, and modification within a specified folder.')
+    parser = argparse.ArgumentParser(prog='FtpSync', description='This program will let sync a folder with a ftp server.')
     parser.add_argument('-d', '--directory', help='The directory you want to supervise', type=str)
     parser.add_argument('-l', '--log', help='The log file.', type=str)
     parser.add_argument('-t', '--time', help='Frequency of folder check (in seconds).', type=int, default=1)
@@ -111,8 +112,8 @@ def check_arguments(args) :
     return check
 
 def init_log_file(log_file) :
-    logging.basicConfig(filename=log_file, datefmt='%d/%m/%Y-%H:%M:%S', format='%(asctime)s %(levelname)s %(message)s', filemode='w', level=logging.DEBUG)
-    logging.info('Folder superviser started.')
+    logging.config.fileConfig(log_file)
+    return logging.getLogger("main")
 
 def main() :
     args = parse_arguments()
@@ -120,4 +121,8 @@ def main() :
         init_log_file(args.log)
         run(args)
 
-main()
+logger = init_log_file("logs.conf")
+
+ftp.login()
+logging.info(ftp.getwelcome())
+ftp.quit();

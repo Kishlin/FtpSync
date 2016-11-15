@@ -87,3 +87,7 @@ ENV/
 
 # Rope project settings
 .ropeproject
+
+# FTP server and Local dir
+ftpserver/
+localdir/
