@@ -7,77 +7,129 @@ import logging.config
 import argparse
 from ftplib import FTP
 
-def ftpMakeDir(ftp, dirName, logger):
+
+def ftp_make_dir(ftp, dir_name, logger):
     wd = ftp.pwd()
-    dirsList = dirName.split('/')
-    for dir in dirsList:
-        if not dir in ftp.nlst():
+    dirs_list = dir_name.split('/')
+    for folder in dirs_list:
+        if folder not in ftp.nlst():
             try:
-                ftp.mkd(dir)
+                ftp.mkd(folder)
             except:
-                logger.debug('Could not create {0}.'.format(dir))
-        ftp.cwd(dir)
+                logger.debug('Could not create {0}.'.format(folder))
+        ftp.cwd(folder)
     ftp.cwd(wd)
 
-def ftpRmTree(ftp, path, logger):
+
+def ftp_rm_tree(ftp, path, logger):
     wd = ftp.pwd()
-    if not path in ftp.nlst():
-        return
     try:
         names = ftp.nlst(path)
     except:
-        logger.debug('Could not list content of {0}.'.format(path))
         return
     for name in names:
         if os.path.split(name)[1] in ('.', '..'): continue
         try:
             ftp.cwd(name)
             ftp.cwd(wd)
-            ftpRmTree(ftp, name, logger)
+            ftp_rm_tree(ftp, name, logger)
         except:
             ftp.delete(name)
     try:
         ftp.rmd(path)
+        logger.info("The folder {0} has been deleted.".format(path))
     except:
-        logger.debug('Could not remove {0}.'.format(path))
+        return
 
-def folderAdded(name, logger, ftp,  refDirectory):
-    logger.info("The folder {0} has been added.".format(name))
-    ftpMakeDir(ftp, name[len(refDirectory) + 1:], logger)
 
-def folderDeleted(name, logger, ftp,  refDirectory):
-    logger.info("The folder {0} has been deleted.".format(name))
-    ftpRmTree(ftp, name[len(refDirectory) + 1:], logger)
+def ftp_add_file(ftp, name, local_file, logger):
+    try:
+        file = open(local_file, 'rb')
+        ftp.storbinary('STOR {0}'.format(name), file)
+        file.close()
+    except IOError:
+        logger.debug('Could not open local file {0}.'.format(local_file))
+    except:
+        logger.debug('Could not upload file {0}.'.format(name))
 
-def folderRenamed(old_name, new_name, logger, ftp,  refDirectory):
-    logger.info("The folder {0} has been moved to {1}.".format(old_name, new_name))
 
-def fileModified(name, logger, ftp,  refDirectory):
-    logger.info("The  file  {0} has been modified.".format(name))
+def ftp_delete_file(ftp, name, logger):
+    try:
+        ftp.delete(name)
+    except:
+        logger.debug('Could not delete file {0}. Maybe it was in a directory deleted beforehand?'.format(name))
 
-def fileAdded(name, logger, ftp,  refDirectory):
-    logger.info("The  file  {0} has been added.".format(name))
 
-def fileDeleted(name, logger, ftp,  refDirectory):
-    logger.info("The  file  {0} has been deleted.".format(name))
+def ftp_edit_file(ftp, name, local_file, logger):
+    ftp_delete_file(ftp, name, logger)
+    ftp_add_file(ftp, name, local_file, logger)
 
-def fileRenamed(old_name, new_name, logger, ftp,  refDirectory):
+
+def ftp_move_file(ftp, old_name, new_name, logger):
+    try:
+        ftp.rename(old_name, new_name)
+    except:
+        logger.debug('Could not move file from {0} to {1}. Maybe it was moved with its parent directory beforehand?'.format(old_name, new_name))
+
+
+def folder_added(name, logger, ftp, ref_directory):
+    ftp_make_dir(ftp, name[len(ref_directory) + 1:], logger)
+    logger.info('The folder {0} has been created.'.format(name))
+
+
+def folder_deleted(name, logger, ftp, ref_directory):
+    ftp_rm_tree(ftp, name[len(ref_directory) + 1:], logger)
+    logger.info('The folder {0} has been deleted.'.format(name))
+
+
+def folder_moved(old_name, new_name, logger, ftp, ref_directory):
+    ftp_rm_tree(ftp, old_name[len(ref_directory) + 1:], logger)
+    ftp_make_dir(ftp, new_name[len(ref_directory) + 1:], logger)
+    new_folder = ({}, {})
+    fill_directories_dictionary(new_folder[0], new_folder[1], new_name)
+    for path in new_folder[0].values():
+        ftp_make_dir(ftp, path[len(ref_directory) + 1:], logger)
+    for file in new_folder[1].values():
+        logger.info('Trying to add file {0}...'.format(file))
+        ftp_add_file(ftp, file[0][len(ref_directory) + 1:], file[0], logger)
+    logger.info('The folder {0} was moved to {1}.'.format(old_name, new_name))
+
+
+def file_modified(name, logger, ftp, ref_directory):
+    ftp_edit_file(ftp, name[len(ref_directory) + 1:], name, logger)
+    logger.info('The file {0} has been modified.'.format(name))
+
+
+def file_added(name, logger, ftp, ref_directory):
+    ftp_add_file(ftp, name[len(ref_directory) + 1:], name, logger)
+    logger.info('The file {0} has been created.'.format(name))
+
+
+def file_deleted(name, logger, ftp, ref_directory):
+    ftp_delete_file(ftp, name[len(ref_directory) + 1:], logger)
+    logger.info('The file {0} has been deleted.'.format(name))
+
+
+def file_moved(old_name, new_name, logger, ftp, ref_directory):
+    ftp_move_file(ftp, old_name[len(ref_directory) + 1:], new_name[len(ref_directory) + 1:], logger)
     logger.info("The  file  {0} has been moved to {1}.".format(old_name, new_name))
 
-def folderAnalyse(old_state, new_state, logger, ftp, refDirectory):
+
+def folder_analyse(old_state, new_state, logger, ftp, ref_directory):
     for node in new_state.keys():
         if node in old_state.keys():
             old_name = old_state[node]
             new_name = new_state[node]
             if old_name != new_name:
-                folderRenamed(old_name, new_name, logger, ftp, refDirectory)
+                folder_moved(old_name, new_name, logger, ftp, ref_directory)
         else:
-            folderAdded(new_state[node], logger, ftp, refDirectory)
+            folder_added(new_state[node], logger, ftp, ref_directory)
     for node in old_state.keys():
         if node not in new_state.keys():
-            folderDeleted(old_state[node], logger, ftp,  refDirectory)
+            folder_deleted(old_state[node], logger, ftp, ref_directory)
 
-def filesAnalyse(old_state, new_state, logger, ftp, refDirectory):
+
+def files_analyse(old_state, new_state, logger, ftp, ref_directory):
     for node in new_state.keys():
         if node in old_state.keys():
             old_name = old_state[node][0]
@@ -86,70 +138,71 @@ def filesAnalyse(old_state, new_state, logger, ftp, refDirectory):
                 old_time = old_state[node][1]
                 new_time = new_state[node][1]
                 if old_time != new_time:
-                    fileModified(new_name, logger, ftp, refDirectory)
+                    file_modified(new_name, logger, ftp, ref_directory)
             else:
-                fileRenamed(old_name, new_name, logger, ftp, refDirectory)
+                file_moved(old_name, new_name, logger, ftp, ref_directory)
         else:
-            fileAdded(new_state[node][0], logger, ftp, refDirectory)
+            file_added(new_state[node][0], logger, ftp, ref_directory)
     for node in old_state.keys():
         if node not in new_state.keys():
-            fileDeleted(old_state[node][0], logger, ftp, refDirectory)
+            file_deleted(old_state[node][0], logger, ftp, ref_directory)
 
-def fill_files_dictionary(dictionary, folder, files) :
-    for file in files :
+
+def fill_files_dictionary(dictionary, folder, files):
+    for file in files:
         full_path = os.path.join(folder, file)
         # Récupération du timestamp de dernière modification
         timestamp = int(os.path.getmtime(full_path))
         inode = int(os.stat(full_path).st_ino)
         dictionary[inode] = (full_path, timestamp)
 
-def fill_directories_dictionary(dictionary_folders, dictionary_files, folder, step_init, step_max) :
+
+def fill_directories_dictionary(dictionary_folders, dictionary_files, folder):
     for root, dirs, files in os.walk(folder):
-        if root.count(str(os.sep)) >= step_max + step_init and step_max != 0 :
-            del dirs[:]
         fill_files_dictionary(dictionary_files, root, files)
         inode = int(os.stat(root).st_ino)
         dictionary_folders[inode] = root
 
-def run(args, logger, ftp) :
+
+def run(args, logger, ftp):
     old_state = ({}, {})
-    step_init = str(args.directory).count(str(os.sep))
-    fill_directories_dictionary(old_state[0], old_state[1], args.directory, step_init, args.recursive)
+    fill_directories_dictionary(old_state[0], old_state[1], args.directory)
     while 1 == 1:
         time.sleep(args.time)
         new_state = ({}, {})
-        fill_directories_dictionary(new_state[0], new_state[1], args.directory, 0, args.recursive)
-        folderAnalyse(old_state[0], new_state[0], logger, ftp, args.directory)
-        filesAnalyse(old_state[1], new_state[1], logger, ftp, args.directory)
+        fill_directories_dictionary(new_state[0], new_state[1], args.directory)
+        folder_analyse(old_state[0], new_state[0], logger, ftp, args.directory)
+        files_analyse(old_state[1], new_state[1], logger, ftp, args.directory)
         old_state = new_state
 
-def parse_arguments() :
-    parser = argparse.ArgumentParser(prog='FtpSync', description='This program will let sync a folder with a ftp server.')
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(prog='FtpSync',
+                                     description='This program will let you sync a folder with a ftp server.')
     parser.add_argument('-d', '--directory', help='The directory you want to supervise', type=str)
     parser.add_argument('-l', '--log', help='The config file for the logger.', type=str)
     parser.add_argument('-t', '--time', help='Frequency of folder check (in seconds).', type=int, default=1)
-    parser.add_argument('-r', '--recursive', help='Depth of recursive folder check. 0 = unlimited.', type=int, default=0)
     return parser.parse_args()
 
-def check_arguments(args) :
+
+def check_arguments(args):
     check = True
-    if not os.path.isdir(args.directory) :
+    if not os.path.isdir(args.directory):
         print('Error : The directory you want to supervise does not exist.')
         check = False
     if not os.path.exists(args.log) or os.path.isdir(args.log):
         print('Error : The config file for the logger does not exist.')
         check = False
-    if args.time <= 0 :
+    if args.time <= 0:
         print('You cannot specify a frequency inferior or equal to 0.')
-        check = False
-    if args.recursive < 0 :
-        print('You cannot specify a recursivity level inferior to 0.')
         check = False
     return check
 
-def init_log_file(log_file) :
+
+def init_log_file(log_file):
     logging.config.fileConfig(log_file)
     return logging.getLogger("main")
+
 
 def init_ftp(hostname, user, password, remote_dir):
     ftp = FTP(hostname)
@@ -157,13 +210,15 @@ def init_ftp(hostname, user, password, remote_dir):
     ftp.cwd(remote_dir)
     return ftp
 
-def main() :
+
+def main():
     args = parse_arguments()
-    if check_arguments(args) :
+    if check_arguments(args):
         logger = init_log_file(args.log)
         ftp = init_ftp("localhost", "sammy", "user", "files")
         logger.info(ftp.getwelcome())
         run(args, logger, ftp)
         ftp.quit()
+
 
 main()
